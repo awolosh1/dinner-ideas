@@ -55,18 +55,13 @@ async def admin(request: Request):
                JOIN restaurants ON restaurants.id = menu_items.restaurant_id
                ORDER BY menu_items.id DESC"""
         ).fetchall()
-    print( {
-                "restaurants": [dict(r) for r in restaurants],
-                "recipes": [dict(r) for r in recipes],
-                "menu_items": [dict(m) for m in menu_items],
-            })
     return templates.TemplateResponse(
         request=request,
         name="admin.html",
         context={
-            "restaurants": [dict(r) for r in restaurants],
-            "recipes": [dict(r) for r in recipes],
-            "menu_items": [dict(m) for m in menu_items],
+            "restaurants": sorted([dict(r) for r in restaurants], key=lambda x: x["name"]),
+            "recipes": sorted([dict(r) for r in recipes], key=lambda x: x["recipe_name"], reverse=False),
+            "menu_items": sorted([dict(m) for m in menu_items], key=lambda x: x["restaurant_name"], reverse=False),
         }
     )
 
