@@ -15,6 +15,7 @@ dependencies = [
   "python-multipart",
   "alembic>=1.19.2",
   "sqlmodel>=0.0.42",
+  "psycopg2-binary"
 ]
 
 [tool.hatch.build.targets.wheel]

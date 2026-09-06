@@ -12,6 +12,7 @@ Four tables:
                   the restaurant" rule).
 """
 
+import os
 import sqlite3
 import tomllib
 from contextlib import contextmanager
@@ -22,11 +23,9 @@ from alembic.config import Config
 from sqlmodel import Session, create_engine
 
 BASE_DIR = Path(__file__).resolve().parents[2]
-DB_PATH = BASE_DIR / "dinner.db"
-DATABASE_URL = f"sqlite:///{DB_PATH}"
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///dinner_picker.db")
 
 engine = create_engine(DATABASE_URL, echo=False)
-
 
 def _alembic_config() -> Config:
     cfg = Config(str(BASE_DIR / "alembic.ini"))
