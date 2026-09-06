@@ -1,8 +1,10 @@
 """
 SQLite database layer for the Dinner Picker app.
 
-Three tables:
+Four tables:
   - recipes:      home-cooking ideas
+  - ingredients:  canonical ingredient catalog shared across recipes
+  - recipe_ingredients: per-recipe ingredient rows, with quantity/notes
   - restaurants:  local restaurants, added manually by name (+ one picture)
   - menu_items:   individual dishes, added by item, linked to a restaurant.
                   If a menu item has no picture of its own, it falls back
@@ -17,10 +19,13 @@ from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
+from sqlmodel import Session, create_engine
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 DB_PATH = BASE_DIR / "dinner.db"
 DATABASE_URL = f"sqlite:///{DB_PATH}"
+
+engine = create_engine(DATABASE_URL, echo=False)
 
 
 def _alembic_config() -> Config:
@@ -31,17 +36,16 @@ def _alembic_config() -> Config:
         pyproject = tomllib.load(fh)
 
     alembic_cfg = pyproject.get("tool", {}).get("alembic", {})
-    for key, value in alembic_cfg.items():
-        if key == "script_location":
-            cfg.set_main_option("script_location", str(BASE_DIR / value))
-        elif key == "sqlalchemy.url":
-            cfg.set_main_option("sqlalchemy.url", value)
+    if "script_location" in alembic_cfg:
+        cfg.set_main_option("script_location", str(BASE_DIR / alembic_cfg["script_location"]))
+    if "sqlalchemy.url" in alembic_cfg:
+        cfg.set_main_option("sqlalchemy.url", alembic_cfg["sqlalchemy.url"])
 
     cfg.set_main_option("sqlalchemy.url", DATABASE_URL)
     return cfg
 
 
-def init_db():
+def init_db() -> None:
     command.upgrade(_alembic_config(), "head")
 
 

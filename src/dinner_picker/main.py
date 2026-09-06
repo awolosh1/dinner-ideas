@@ -18,23 +18,30 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from sqlmodel import Session, select
 
-from .database import get_conn, init_db
-from .models import MenuItemIn, RecipeIn, RestaurantIn
+from .database import engine, init_db
+from .models import (
+    Ingredient,
+    IngredientIn,
+    MenuItem,
+    MenuItemIn,
+    Recipe,
+    RecipeIn,
+    RecipeIngredient,
+    Restaurant,
+    RestaurantIn,
+)
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 
 app = FastAPI(title="Dinner Picker")
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
-templates.env.cache = None   # workaround for pallets/jinja#2180 on Python 3.14
+templates.env.cache = None
 
 init_db()
 
-
-# --------------------------------------------------------------------------
-# Pages
-# --------------------------------------------------------------------------
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
@@ -43,91 +50,93 @@ async def home(request: Request):
 
 @app.get("/admin", response_class=HTMLResponse)
 async def admin(request: Request):
-    with get_conn() as conn:
-        restaurants = conn.execute(
-            "SELECT * FROM restaurants ORDER BY name"
-        ).fetchall()
-        recipes = conn.execute(
-            "SELECT * FROM recipes ORDER BY id DESC"
-        ).fetchall()
-        menu_items = conn.execute(
-            """SELECT menu_items.*, restaurants.name AS restaurant_name
-               FROM menu_items
-               JOIN restaurants ON restaurants.id = menu_items.restaurant_id
-               ORDER BY menu_items.id DESC"""
-        ).fetchall()
+    with Session(engine) as session:
+        restaurants = session.exec(select(Restaurant).order_by(Restaurant.name)).all()
+        recipes = session.exec(select(Recipe).order_by(Recipe.id.desc())).all()
+        menu_items = session.exec(
+            select(MenuItem, Restaurant)
+            .join(Restaurant, MenuItem.restaurant_id == Restaurant.id)
+            .order_by(MenuItem.id.desc())
+        ).all()
+        ingredient_rows = session.exec(
+            select(RecipeIngredient, Ingredient)
+            .join(Ingredient, RecipeIngredient.ingredient_id == Ingredient.id)
+            .order_by(RecipeIngredient.recipe_id, Ingredient.name)
+        ).all()
+
+    recipe_rows = [dict(r) for r in recipes]
+    by_recipe = {}
+    for recipe_ingredient, ingredient in ingredient_rows:
+        by_recipe.setdefault(recipe_ingredient.recipe_id, []).append(
+            {
+                "id": recipe_ingredient.id,
+                "recipe_id": recipe_ingredient.recipe_id,
+                "ingredient_id": ingredient.id,
+                "name": ingredient.name,
+                "quantity": recipe_ingredient.quantity,
+                "notes": recipe_ingredient.notes,
+            }
+        )
+    for recipe in recipe_rows:
+        recipe["ingredients"] = by_recipe.get(recipe["id"], [])
+
+    menu_rows = [{
+        **dict(m),
+        "restaurant_name": r.name,
+    } for m, r in menu_items]
+
     return templates.TemplateResponse(
         request=request,
         name="admin.html",
         context={
             "restaurants": [dict(r) for r in restaurants],
-            "recipes": [dict(r) for r in recipes],
-            "menu_items": [dict(m) for m in menu_items],
+            "recipes": recipe_rows,
+            "menu_items": menu_rows,
         },
     )
 
 
-# --------------------------------------------------------------------------
-# Helpers
-# --------------------------------------------------------------------------
-
-def _idea_from_recipe(row) -> dict:
+def _idea_from_recipe(row: Recipe) -> dict:
     return {
-        "id": f"cook-{row['id']}",
+        "id": f"cook-{row.id}",
         "type": "cook",
-        "title": row["name"],
-        "subtitle": row["description"],
-        "image_url": row["image_url"],
+        "title": row.name,
+        "subtitle": row.description,
+        "image_url": row.image_url,
         "restaurant_name": None,
         "price": None,
     }
 
 
-def _idea_from_menu_item(row) -> dict:
-    image = row["item_image"] or row["restaurant_image"]
+def _idea_from_menu_item(row: tuple[MenuItem, Restaurant]) -> dict:
+    menu_item, restaurant = row
+    image = menu_item.image_url or restaurant.image_url
     return {
-        "id": f"takeout-{row['id']}",
+        "id": f"takeout-{menu_item.id}",
         "type": "takeout",
-        "title": row["name"],
-        "subtitle": row["description"],
+        "title": menu_item.name,
+        "subtitle": menu_item.description,
         "image_url": image,
-        "restaurant_name": row["restaurant_name"],
-        "price": row["price"],
+        "restaurant_name": restaurant.name,
+        "price": menu_item.price,
     }
 
 
 def _all_ideas() -> list[dict]:
-    with get_conn() as conn:
-        recipes = conn.execute("SELECT * FROM recipes").fetchall()
-        items = conn.execute(
-            """SELECT menu_items.id AS id,
-                      menu_items.name AS name,
-                      menu_items.description AS description,
-                      menu_items.price AS price,
-                      menu_items.image_url AS item_image,
-                      restaurants.name AS restaurant_name,
-                      restaurants.image_url AS restaurant_image
-               FROM menu_items
-               JOIN restaurants ON restaurants.id = menu_items.restaurant_id"""
-        ).fetchall()
+    with Session(engine) as session:
+        recipes = session.exec(select(Recipe)).all()
+        menu_rows = session.exec(
+            select(MenuItem, Restaurant)
+            .join(Restaurant, MenuItem.restaurant_id == Restaurant.id)
+        ).all()
 
     ideas = [_idea_from_recipe(r) for r in recipes]
-    ideas += [_idea_from_menu_item(r) for r in items]
+    ideas += [_idea_from_menu_item(r) for r in menu_rows]
     return ideas
 
 
-# --------------------------------------------------------------------------
-# API: random suggestion
-# --------------------------------------------------------------------------
-
 @app.get("/api/random")
 def random_idea(mood: str = "all", exclude: str = ""):
-    """
-    Return one random dinner idea.
-    `exclude` is a comma-separated list of idea ids already rejected this
-    round, so the same idea isn't shown twice in a row.
-    `mood` can be "all", "cook", or "takeout" to narrow the pool.
-    """
     excluded_ids = {i for i in exclude.split(",") if i}
     all_ideas = _all_ideas()
     pool = [
@@ -148,122 +157,192 @@ def random_idea(mood: str = "all", exclude: str = ""):
     return random.choice(pool)
 
 
-# --------------------------------------------------------------------------
-# API: idea list / random order
-# --------------------------------------------------------------------------
-
 @app.get("/api/ideas")
 def list_ideas(mood: str = "all"):
-    """Return all dinner ideas for the selected mood in a random order."""
     ideas = _all_ideas()
     filtered = [idea for idea in ideas if mood in {"all", "any"} or idea["type"] == mood]
     random.shuffle(filtered)
     return filtered
 
 
-# --------------------------------------------------------------------------
-# API: admin - recipes
-# --------------------------------------------------------------------------
-
 @app.post("/api/recipes")
 def add_recipe(recipe: RecipeIn):
-    with get_conn() as conn:
-        cur = conn.execute(
-            "INSERT INTO recipes (name, description, image_url) VALUES (?, ?, ?)",
-            (recipe.name, recipe.description, recipe.image_url),
-        )
-        conn.commit()
-        return {"id": cur.lastrowid}
+    with Session(engine) as session:
+        row = Recipe.model_validate(recipe)
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        return {"id": row.id}
 
 
 @app.delete("/api/recipes/{recipe_id}")
 def delete_recipe(recipe_id: int):
-    with get_conn() as conn:
-        conn.execute("DELETE FROM recipes WHERE id = ?", (recipe_id,))
-        conn.commit()
+    with Session(engine) as session:
+        recipe = session.get(Recipe, recipe_id)
+        if recipe is None:
+            raise HTTPException(status_code=404, detail="Recipe not found")
+        session.delete(recipe)
+        session.commit()
     return {"ok": True}
 
 
-# --------------------------------------------------------------------------
-# API: admin - restaurants
-# --------------------------------------------------------------------------
-
 @app.get("/api/restaurants")
 def list_restaurants():
-    with get_conn() as conn:
-        rows = conn.execute("SELECT * FROM restaurants ORDER BY name").fetchall()
+    with Session(engine) as session:
+        rows = session.exec(select(Restaurant).order_by(Restaurant.name)).all()
         return [dict(r) for r in rows]
 
 
 @app.post("/api/restaurants")
 def add_restaurant(restaurant: RestaurantIn):
-    with get_conn() as conn:
-        cur = conn.execute(
-            "INSERT INTO restaurants (name, image_url) VALUES (?, ?)",
-            (restaurant.name, restaurant.image_url),
-        )
-        conn.commit()
-        return {"id": cur.lastrowid}
+    with Session(engine) as session:
+        row = Restaurant.model_validate(restaurant)
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        return {"id": row.id}
 
 
 @app.delete("/api/restaurants/{restaurant_id}")
 def delete_restaurant(restaurant_id: int):
-    with get_conn() as conn:
-        conn.execute("DELETE FROM restaurants WHERE id = ?", (restaurant_id,))
-        conn.commit()
+    with Session(engine) as session:
+        row = session.get(Restaurant, restaurant_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Restaurant not found")
+        session.delete(row)
+        session.commit()
     return {"ok": True}
 
 
-# --------------------------------------------------------------------------
-# API: admin - menu items
-# --------------------------------------------------------------------------
-
 @app.post("/api/menu-items")
 def add_menu_item(item: MenuItemIn):
-    with get_conn() as conn:
-        restaurant = conn.execute(
-            "SELECT id FROM restaurants WHERE id = ?", (item.restaurant_id,)
-        ).fetchone()
-        if not restaurant:
+    with Session(engine) as session:
+        restaurant = session.get(Restaurant, item.restaurant_id)
+        if restaurant is None:
             raise HTTPException(status_code=404, detail="Restaurant not found")
 
-        cur = conn.execute(
-            """INSERT INTO menu_items (restaurant_id, name, description, price, image_url)
-               VALUES (?, ?, ?, ?, ?)""",
-            (item.restaurant_id, item.name, item.description, item.price, item.image_url),
-        )
-        conn.commit()
-        return {"id": cur.lastrowid}
+        row = MenuItem.model_validate(item)
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        return {"id": row.id}
 
 
 @app.delete("/api/menu-items/{item_id}")
 def delete_menu_item(item_id: int):
-    with get_conn() as conn:
-        conn.execute("DELETE FROM menu_items WHERE id = ?", (item_id,))
-        conn.commit()
+    with Session(engine) as session:
+        row = session.get(MenuItem, item_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Menu item not found")
+        session.delete(row)
+        session.commit()
     return {"ok": True}
 
 
 @app.put("/api/menu-items/{item_id}")
 def update_menu_item(item_id: int, item: MenuItemIn):
-    with get_conn() as conn:
-        existing = conn.execute(
-            "SELECT id FROM menu_items WHERE id = ?", (item_id,)
-        ).fetchone()
-        if not existing:
+    with Session(engine) as session:
+        row = session.get(MenuItem, item_id)
+        if row is None:
             raise HTTPException(status_code=404, detail="Menu item not found")
-
-        restaurant = conn.execute(
-            "SELECT id FROM restaurants WHERE id = ?", (item.restaurant_id,)
-        ).fetchone()
-        if not restaurant:
+        restaurant = session.get(Restaurant, item.restaurant_id)
+        if restaurant is None:
             raise HTTPException(status_code=404, detail="Restaurant not found")
 
-        conn.execute(
-            """UPDATE menu_items
-               SET restaurant_id = ?, name = ?, description = ?, price = ?, image_url = ?
-               WHERE id = ?""",
-            (item.restaurant_id, item.name, item.description, item.price, item.image_url, item_id),
-        )
-        conn.commit()
+        row.restaurant_id = item.restaurant_id
+        row.name = item.name
+        row.description = item.description
+        row.price = item.price
+        row.image_url = item.image_url
+        session.add(row)
+        session.commit()
         return {"ok": True}
+
+
+@app.get("/api/recipes/{recipe_id}/ingredients")
+def list_recipe_ingredients(recipe_id: int):
+    with Session(engine) as session:
+        rows = session.exec(
+            select(RecipeIngredient, Ingredient)
+            .join(Ingredient, RecipeIngredient.ingredient_id == Ingredient.id)
+            .where(RecipeIngredient.recipe_id == recipe_id)
+            .order_by(Ingredient.name)
+        ).all()
+
+    return [{
+        "id": recipe_ingredient.id,
+        "ingredient_id": ingredient.id,
+        "name": ingredient.name,
+        "quantity": recipe_ingredient.quantity,
+        "notes": recipe_ingredient.notes,
+    } for recipe_ingredient, ingredient in rows]
+
+
+@app.post("/api/recipes/{recipe_id}/ingredients")
+def add_recipe_ingredient(recipe_id: int, ingredient: IngredientIn):
+    with Session(engine) as session:
+        recipe = session.get(Recipe, recipe_id)
+        if recipe is None:
+            raise HTTPException(status_code=404, detail="Recipe not found")
+
+        name = ingredient.name.strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Ingredient name is required")
+
+        existing_ingredient = session.exec(
+            select(Ingredient).where(Ingredient.name == name)
+        ).first()
+
+        if existing_ingredient is None:
+            existing_ingredient = Ingredient(name=name)
+            session.add(existing_ingredient)
+            session.commit()
+            session.refresh(existing_ingredient)
+
+        existing_link = session.exec(
+            select(RecipeIngredient).where(
+                RecipeIngredient.recipe_id == recipe_id,
+                RecipeIngredient.ingredient_id == existing_ingredient.id,
+            )
+        ).first()
+
+        if existing_link is not None:
+            existing_link.quantity = ingredient.quantity
+            existing_link.notes = ingredient.notes
+            session.add(existing_link)
+            session.commit()
+            session.refresh(existing_link)
+            recipe_ingredient_id = existing_link.id
+        else:
+            link = RecipeIngredient(
+                recipe_id=recipe_id,
+                ingredient_id=existing_ingredient.id,
+                quantity=ingredient.quantity,
+                notes=ingredient.notes,
+            )
+            session.add(link)
+            session.commit()
+            session.refresh(link)
+            recipe_ingredient_id = link.id
+
+    return {"id": recipe_ingredient_id}
+
+
+@app.delete("/api/ingredients/{ingredient_id}")
+def delete_recipe_ingredient(ingredient_id: int):
+    with Session(engine) as session:
+        row = session.get(RecipeIngredient, ingredient_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Ingredient not found")
+
+        ingredient_id_value = row.ingredient_id
+        session.delete(row)
+        remaining = session.exec(
+            select(RecipeIngredient).where(RecipeIngredient.ingredient_id == ingredient_id_value)
+        ).first()
+        if remaining is None:
+            ingredient_record = session.get(Ingredient, ingredient_id_value)
+            if ingredient_record is not None:
+                session.delete(ingredient_record)
+        session.commit()
+    return {"ok": True}

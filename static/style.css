@@ -479,3 +479,51 @@ button.decision:disabled {
   border-color: #dfe7d0;
   color: var(--ink);
 }
+
+.recipe-item {
+  align-items: flex-start;
+}
+
+.ingredient-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.ingredient-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid #b8a875;
+  background: #f5edd4;
+  font-size: 11px;
+  color: #4f4130;
+}
+
+.del-ingredient {
+  border: none;
+  background: transparent;
+  color: var(--tomato-dark);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.ingredient-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.ingredient-form input {
+  flex: 1 1 110px;
+  min-width: 110px;
+}
+
+button.submit.tiny {
+  padding: 7px 10px;
+  font-size: 11px;
+}

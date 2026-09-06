@@ -95,10 +95,51 @@ function attachMenuItemEdits() {
   }
 }
 
+function attachRecipeIngredientForms() {
+  document.querySelectorAll(".ingredient-form").forEach((form) => {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const recipeId = form.dataset.recipeId;
+      const nameInput = form.querySelector("input[name='ingredient_name']");
+      const qtyInput = form.querySelector("input[name='ingredient_quantity']");
+      const notesInput = form.querySelector("input[name='ingredient_notes']");
+
+      if (!recipeId || !nameInput || !nameInput.value.trim()) {
+        return;
+      }
+
+      try {
+        await postJson(`/api/recipes/${recipeId}/ingredients`, {
+          name: nameInput.value.trim(),
+          quantity: qtyInput ? qtyInput.value.trim() : "",
+          notes: notesInput ? notesInput.value.trim() : "",
+        });
+        location.reload();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
+
+  document.querySelectorAll("button.del-ingredient").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      if (!confirm("Remove this ingredient?")) return;
+      try {
+        const res = await fetch(`/api/ingredients/${btn.dataset.id}`, { method: "DELETE" });
+        if (!res.ok) throw new Error("Could not delete ingredient");
+        location.reload();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
+}
+
 attachForm("restaurantForm", "/api/restaurants");
 attachForm("menuItemForm", "/api/menu-items");
 attachForm("recipeForm", "/api/recipes");
 attachMenuItemEdits();
+attachRecipeIngredientForms();
 
 document.querySelectorAll("button.del").forEach((btn) => {
   btn.addEventListener("click", async () => {

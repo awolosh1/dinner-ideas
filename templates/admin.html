@@ -117,9 +117,29 @@
       </form>
       <div class="existing-list" id="recipeList">
         {% for r in recipes %}
-        <div class="existing-item" data-id="{{ r.id }}">
-          <span>{{ r.name }}</span>
-          <button class="del" data-kind="recipes" data-id="{{ r.id }}">remove</button>
+        <div class="existing-item recipe-item" data-id="{{ r.id }}">
+          <div>
+            <span>{{ r.name }}</span>
+            {% if r.ingredients %}
+            <div class="ingredient-list">
+              {% for ingredient in r.ingredients %}
+              <span class="ingredient-pill">
+                {{ ingredient.name }}{% if ingredient.quantity %} — {{ ingredient.quantity }}{% endif %}
+                <button type="button" class="del-ingredient" data-id="{{ ingredient.id }}" aria-label="Remove {{ ingredient.name }}">x</button>
+              </span>
+              {% endfor %}
+            </div>
+            {% endif %}
+            <form class="ingredient-form" data-recipe-id="{{ r.id }}">
+              <input type="text" name="ingredient_name" placeholder="Ingredient" required>
+              <input type="text" name="ingredient_quantity" placeholder="Qty">
+              <input type="text" name="ingredient_notes" placeholder="Notes">
+              <button type="submit" class="submit tiny">Add ingredient</button>
+            </form>
+          </div>
+          <div class="existing-actions">
+            <button class="del" data-kind="recipes" data-id="{{ r.id }}">remove</button>
+          </div>
         </div>
         {% else %}
         <span class="empty-msg">No recipes added yet.</span>
