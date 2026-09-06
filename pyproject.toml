@@ -1,7 +1,22 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "dinner-picker"
 version = "0.1.0"
-description = "Add your description here"
+description = "A small FastAPI app that picks a dinner idea from home-cooked recipes and takeout menu items."
 readme = "README.md"
 requires-python = ">=3.14"
-dependencies = []
+dependencies = [
+  "fastapi",
+  "uvicorn[standard]",
+  "jinja2",
+  "python-multipart",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/dinner_picker"]
+
+[tool.vercel]
+entrypoint = "src.dinner_picker:app"

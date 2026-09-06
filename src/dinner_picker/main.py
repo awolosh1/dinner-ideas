@@ -6,28 +6,29 @@ cook, or a menu item from a local restaurant you've added yourself. You get
 3 "no"s before the app makes you say yes to the next one.
 
 Run with:
-    uvicorn main:app --reload
+    uvicorn dinner_picker.main:app --reload
 Then open http://127.0.0.1:8000
 Admin page (add recipes/restaurants/menu items) at /admin
 """
 
 import random
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from database import init_db, get_conn
-from models import RecipeIn, RestaurantIn, MenuItemIn
+from .database import get_conn, init_db
+from .models import MenuItemIn, RecipeIn, RestaurantIn
 
+BASE_DIR = Path(__file__).resolve().parents[2]
 
 app = FastAPI(title="Dinner Picker")
-app.mount("/static", StaticFiles(directory="static"), name="static")
-templates = Jinja2Templates(directory="templates")
+app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
+templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.cache = None   # workaround for pallets/jinja#2180 on Python 3.14
 
-from pathlib import Path
 init_db()
 
 
@@ -37,7 +38,7 @@ init_db()
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    return FileResponse(Path(__file__).parent / "templates" / "index.html")
+    return FileResponse(BASE_DIR / "templates" / "index.html")
 
 
 @app.get("/admin", response_class=HTMLResponse)
@@ -59,11 +60,12 @@ async def admin(request: Request):
         request=request,
         name="admin.html",
         context={
-            "restaurants": sorted([dict(r) for r in restaurants], key=lambda x: x["name"]),
-            "recipes": sorted([dict(r) for r in recipes], key=lambda x: x["recipe_name"], reverse=False),
-            "menu_items": sorted([dict(m) for m in menu_items], key=lambda x: x["restaurant_name"], reverse=False),
-        }
+            "restaurants": [dict(r) for r in restaurants],
+            "recipes": [dict(r) for r in recipes],
+            "menu_items": [dict(m) for m in menu_items],
+        },
     )
+
 
 # --------------------------------------------------------------------------
 # Helpers
@@ -82,7 +84,6 @@ def _idea_from_recipe(row) -> dict:
 
 
 def _idea_from_menu_item(row) -> dict:
-    # Fall back to the restaurant's picture if the item has none of its own.
     image = row["item_image"] or row["restaurant_image"]
     return {
         "id": f"takeout-{row['id']}",
@@ -135,8 +136,6 @@ def random_idea(mood: str = "all", exclude: str = ""):
     ]
 
     if not pool:
-        # If the chosen mood is empty, fall back to the broader pool so the app
-        # still keeps working instead of throwing an error.
         pool = [idea for idea in all_ideas if idea["id"] not in excluded_ids]
         if not pool:
             if not all_ideas:
@@ -147,6 +146,19 @@ def random_idea(mood: str = "all", exclude: str = ""):
             pool = all_ideas
 
     return random.choice(pool)
+
+
+# --------------------------------------------------------------------------
+# API: idea list / random order
+# --------------------------------------------------------------------------
+
+@app.get("/api/ideas")
+def list_ideas(mood: str = "all"):
+    """Return all dinner ideas for the selected mood in a random order."""
+    ideas = _all_ideas()
+    filtered = [idea for idea in ideas if mood in {"all", "any"} or idea["type"] == mood]
+    random.shuffle(filtered)
+    return filtered
 
 
 # --------------------------------------------------------------------------
@@ -231,6 +243,7 @@ def delete_menu_item(item_id: int):
         conn.commit()
     return {"ok": True}
 
+
 @app.put("/api/menu-items/{item_id}")
 def update_menu_item(item_id: int, item: MenuItemIn):
     with get_conn() as conn:
@@ -254,11 +267,3 @@ def update_menu_item(item_id: int, item: MenuItemIn):
         )
         conn.commit()
         return {"ok": True}
-
-@app.get("/api/ideas")
-def list_ideas(mood: str = "all"):
-    """Return all dinner ideas for the selected mood in a random order."""
-    ideas = _all_ideas()
-    filtered = [idea for idea in ideas if mood in {"all", "any"} or idea["type"] == mood]
-    random.shuffle(filtered)
-    return filtered

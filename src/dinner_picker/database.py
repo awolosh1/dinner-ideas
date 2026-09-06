@@ -11,10 +11,10 @@ Three tables:
 """
 
 import sqlite3
-from pathlib import Path
 from contextlib import contextmanager
+from pathlib import Path
 
-DB_PATH = Path(__file__).parent / "dinner.db"
+DB_PATH = Path(__file__).resolve().parents[2] / "dinner.db"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS recipes (
