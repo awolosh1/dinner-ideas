@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dinner Picker</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+  <div class="topbar">
+    <span class="brand">Dinner Picker</span>
+    <a class="admin-link" href="/admin">manage recipes &amp; restaurants</a>
+  </div>
+
+  <div class="mood-picker" aria-label="Choose your dinner mood">
+    <button class="mood-btn active" data-mood="all" type="button">All moods</button>
+    <button class="mood-btn" data-mood="cook" type="button">Home cook</button>
+    <button class="mood-btn" data-mood="takeout" type="button">Takeout</button>
+  </div>
+
+  <div class="ticket-wrap" id="app">
+    <!-- content injected by app.js -->
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dinner Picker · Admin</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+  <div class="topbar" style="max-width:640px;">
+    <span class="brand">Dinner Picker</span>
+    <a class="admin-link" href="/">back to picker</a>
+  </div>
+
+  <div class="admin-wrap">
+
+    <!-- RESTAURANTS -->
+    <div class="admin-section">
+      <h2>Restaurants</h2>
+      <p class="hint">Add a local restaurant by name, with one picture. Menu items below can use this picture automatically.</p>
+      <form id="restaurantForm">
+        <div class="field-row">
+          <label for="r-name">Restaurant name</label>
+          <input id="r-name" name="name" required placeholder="e.g. Luigi's Pizzeria">
+        </div>
+        <div class="field-row">
+          <label for="r-image">Picture URL</label>
+          <input id="r-image" name="image_url" placeholder="https://...">
+        </div>
+        <button class="submit" type="submit">Add restaurant</button>
+      </form>
+      <div class="existing-list" id="restaurantList">
+        {% for r in restaurants %}
+        <div class="existing-item" data-id="{{ r.id }}" data-type="restaurant">
+          <span>{{ r.name }}</span>
+          <button class="del" data-kind="restaurants" data-id="{{ r.id }}">remove</button>
+        </div>
+        {% else %}
+        <span class="empty-msg">No restaurants added yet.</span>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- MENU ITEMS -->
+    <div class="admin-section">
+      <h2>Menu items</h2>
+      <p class="hint">Add takeout ideas item by item, linked to a restaurant above. Leave picture blank to use the restaurant's picture.</p>
+      <form id="menuItemForm">
+        <div class="field-row">
+          <label for="m-restaurant">Restaurant</label>
+          <select id="m-restaurant" name="restaurant_id" required>
+            <option value="" disabled selected>Choose a restaurant</option>
+            {% for r in restaurants %}
+            <option value="{{ r.id }}">{{ r.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field-row">
+          <label for="m-name">Item name</label>
+          <input id="m-name" name="name" required placeholder="e.g. Margherita Pizza">
+        </div>
+        <div class="field-row">
+          <label for="m-description">Description</label>
+          <textarea id="m-description" name="description" placeholder="Short description (optional)"></textarea>
+        </div>
+        <div class="field-row">
+          <label for="m-price">Price</label>
+          <input id="m-price" name="price" placeholder="e.g. $14 (optional)">
+        </div>
+        <div class="field-row">
+          <label for="m-image">Picture URL (optional — falls back to restaurant photo)</label>
+          <input id="m-image" name="image_url" placeholder="https://...">
+        </div>
+        <button class="submit" type="submit">Add menu item</button>
+        <button class="cancel-edit" id="menuItemCancel" type="button" hidden>Cancel edit</button>
+      </form>
+      <div class="existing-list" id="menuItemList">
+        {% for m in menu_items %}
+        <div class="existing-item"
+             data-id="{{ m.id }}"
+             data-restaurant-id="{{ m.restaurant_id }}"
+             data-name="{{ m.name }}"
+             data-description="{{ m.description }}"
+             data-price="{{ m.price }}"
+             data-image-url="{{ m.image_url }}">
+          <span>{{ m.name }} <span class="meta">— {{ m.restaurant_name }}</span></span>
+          <div class="existing-actions">
+            <button class="edit" data-kind="menu-items" data-id="{{ m.id }}">edit</button>
+            <button class="del" data-kind="menu-items" data-id="{{ m.id }}">remove</button>
+          </div>
+        </div>
+        {% else %}
+        <span class="empty-msg">No menu items added yet.</span>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- RECIPES -->
+    <div class="admin-section">
+      <h2>Cook-at-home recipes</h2>
+      <p class="hint">Add something you can cook, with its own picture.</p>
+      <form id="recipeForm">
+        <div class="field-row">
+          <label for="c-name">Recipe name</label>
+          <input id="c-name" name="name" required placeholder="e.g. Sheet-Pan Salmon">
+        </div>
+        <div class="field-row">
+          <label for="c-description">Description</label>
+          <textarea id="c-description" name="description" placeholder="Short description (optional)"></textarea>
+        </div>
+        <div class="field-row">
+          <label for="c-image">Picture URL</label>
+          <input id="c-image" name="image_url" placeholder="https://...">
+        </div>
+        <button class="submit" type="submit">Add recipe</button>
+      </form>
+      <div class="existing-list" id="recipeList">
+        {% for r in recipes %}
+        <div class="existing-item" data-id="{{ r.id }}">
+          <span>{{ r.name }}</span>
+          <button class="del" data-kind="recipes" data-id="{{ r.id }}">remove</button>
+        </div>
+        {% else %}
+        <span class="empty-msg">No recipes added yet.</span>
+        {% endfor %}
+      </div>
+    </div>
+
+  </div>
+
+  <script src="/static/admin.js"></script>
+</body>
+</html>
