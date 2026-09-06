@@ -11,69 +11,38 @@ Three tables:
 """
 
 import sqlite3
+import tomllib
 from contextlib import contextmanager
 from pathlib import Path
 
-DB_PATH = Path(__file__).resolve().parents[2] / "dinner.db"
+from alembic import command
+from alembic.config import Config
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS recipes (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    name        TEXT NOT NULL,
-    description TEXT DEFAULT '',
-    image_url   TEXT DEFAULT ''
-);
-
-CREATE TABLE IF NOT EXISTS restaurants (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    name        TEXT NOT NULL,
-    image_url   TEXT DEFAULT ''
-);
-
-CREATE TABLE IF NOT EXISTS menu_items (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    restaurant_id INTEGER NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
-    name          TEXT NOT NULL,
-    description   TEXT DEFAULT '',
-    price         TEXT DEFAULT '',
-    image_url     TEXT DEFAULT ''
-);
-"""
-
-SEED = """
-INSERT INTO restaurants (name, image_url) VALUES
-    ('Luigi''s Pizzeria', 'https://images.unsplash.com/photo-1513104890138-7c749659a591?w=600'),
-    ('Golden Dragon',     'https://images.unsplash.com/photo-1526318896980-cf78c088247c?w=600');
-
-INSERT INTO menu_items (restaurant_id, name, description, price, image_url) VALUES
-    (1, 'Margherita Pizza', 'Classic tomato, mozzarella, basil', '$14', ''),
-    (1, 'Chicken Parm Sub', 'Breaded chicken, marinara, provolone', '$12', ''),
-    (2, 'General Tso''s Chicken', 'Crispy chicken in sweet-spicy sauce', '$13', ''),
-    (2, 'Vegetable Lo Mein', 'Stir-fried noodles with mixed vegetables', '$11', '');
-
-INSERT INTO recipes (name, description, image_url) VALUES
-    ('Homemade Tacos', 'Ground beef or veggie tacos with all the fixings',
-     'https://images.unsplash.com/photo-1551504734-5ee1c4a1479b?w=600'),
-    ('Sheet-Pan Salmon', 'Salmon and roasted veggies, one pan, 25 minutes',
-     'https://images.unsplash.com/photo-1467003909585-2f8a72700288?w=600'),
-    ('Creamy Mushroom Risotto', 'Slow-stirred arborio rice with mushrooms and parmesan',
-     'https://images.unsplash.com/photo-1476124369491-e7addf5db371?w=600');
-"""
+BASE_DIR = Path(__file__).resolve().parents[2]
+DB_PATH = BASE_DIR / "dinner.db"
+DATABASE_URL = f"sqlite:///{DB_PATH}"
 
 
-def _needs_seed(conn) -> bool:
-    row = conn.execute(
-        "SELECT (SELECT COUNT(*) FROM recipes) + (SELECT COUNT(*) FROM restaurants)"
-    ).fetchone()
-    return row[0] == 0
+def _alembic_config() -> Config:
+    cfg = Config(str(BASE_DIR / "alembic.ini"))
+
+    pyproject_path = BASE_DIR / "pyproject.toml"
+    with pyproject_path.open("rb") as fh:
+        pyproject = tomllib.load(fh)
+
+    alembic_cfg = pyproject.get("tool", {}).get("alembic", {})
+    for key, value in alembic_cfg.items():
+        if key == "script_location":
+            cfg.set_main_option("script_location", str(BASE_DIR / value))
+        elif key == "sqlalchemy.url":
+            cfg.set_main_option("sqlalchemy.url", value)
+
+    cfg.set_main_option("sqlalchemy.url", DATABASE_URL)
+    return cfg
 
 
 def init_db():
-    with get_conn() as conn:
-        conn.executescript(SCHEMA)
-        if _needs_seed(conn):
-            conn.executescript(SEED)
-        conn.commit()
+    command.upgrade(_alembic_config(), "head")
 
 
 @contextmanager
