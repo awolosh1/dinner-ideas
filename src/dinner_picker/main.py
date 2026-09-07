@@ -20,7 +20,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, select
-
+from .github import oauth
 from .database import engine, init_db
 from .models import (
     Ingredient,
@@ -33,6 +33,7 @@ from .models import (
     Restaurant,
     RestaurantIn,
 )
+from starlette.middleware.sessions import SessionMiddleware
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 
@@ -46,6 +47,8 @@ app = FastAPI(title="Dinner Picker", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.cache = None
+app.add_middleware(SessionMiddleware, secret_key="!secret")
+
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
@@ -84,10 +87,13 @@ async def admin(request: Request):
     for recipe in recipe_rows:
         recipe["ingredients"] = by_recipe.get(recipe["id"], [])
 
-    menu_rows = [{
-        **dict(m),
-        "restaurant_name": r.name,
-    } for m, r in menu_items]
+    menu_rows = [
+        {
+            **dict(m),
+            "restaurant_name": r.name,
+        }
+        for m, r in menu_items
+    ]
 
     return templates.TemplateResponse(
         request=request,
@@ -130,8 +136,9 @@ def _all_ideas() -> list[dict]:
     with Session(engine) as session:
         recipes = session.exec(select(Recipe)).all()
         menu_rows = session.exec(
-            select(MenuItem, Restaurant)
-            .join(Restaurant, MenuItem.restaurant_id == Restaurant.id)
+            select(MenuItem, Restaurant).join(
+                Restaurant, MenuItem.restaurant_id == Restaurant.id
+            )
         ).all()
 
     ideas = [_idea_from_recipe(r) for r in recipes]
@@ -144,8 +151,10 @@ def random_idea(mood: str = "all", exclude: str = ""):
     excluded_ids = {i for i in exclude.split(",") if i}
     all_ideas = _all_ideas()
     pool = [
-        idea for idea in all_ideas
-        if (mood in {"all", "any"} or idea["type"] == mood) and idea["id"] not in excluded_ids
+        idea
+        for idea in all_ideas
+        if (mood in {"all", "any"} or idea["type"] == mood)
+        and idea["id"] not in excluded_ids
     ]
 
     if not pool:
@@ -164,7 +173,9 @@ def random_idea(mood: str = "all", exclude: str = ""):
 @app.get("/api/ideas")
 def list_ideas(mood: str = "all"):
     ideas = _all_ideas()
-    filtered = [idea for idea in ideas if mood in {"all", "any"} or idea["type"] == mood]
+    filtered = [
+        idea for idea in ideas if mood in {"all", "any"} or idea["type"] == mood
+    ]
     random.shuffle(filtered)
     return filtered
 
@@ -273,13 +284,16 @@ def list_recipe_ingredients(recipe_id: int):
             .order_by(Ingredient.name)
         ).all()
 
-    return [{
-        "id": recipe_ingredient.id,
-        "ingredient_id": ingredient.id,
-        "name": ingredient.name,
-        "quantity": recipe_ingredient.quantity,
-        "notes": recipe_ingredient.notes,
-    } for recipe_ingredient, ingredient in rows]
+    return [
+        {
+            "id": recipe_ingredient.id,
+            "ingredient_id": ingredient.id,
+            "name": ingredient.name,
+            "quantity": recipe_ingredient.quantity,
+            "notes": recipe_ingredient.notes,
+        }
+        for recipe_ingredient, ingredient in rows
+    ]
 
 
 @app.post("/api/recipes/{recipe_id}/ingredients")
@@ -342,7 +356,9 @@ def delete_recipe_ingredient(ingredient_id: int):
         ingredient_id_value = row.ingredient_id
         session.delete(row)
         remaining = session.exec(
-            select(RecipeIngredient).where(RecipeIngredient.ingredient_id == ingredient_id_value)
+            select(RecipeIngredient).where(
+                RecipeIngredient.ingredient_id == ingredient_id_value
+            )
         ).first()
         if remaining is None:
             ingredient_record = session.get(Ingredient, ingredient_id_value)
@@ -350,3 +366,21 @@ def delete_recipe_ingredient(ingredient_id: int):
                 session.delete(ingredient_record)
         session.commit()
     return {"ok": True}
+
+
+@app.get("/login")
+async def login(request: Request):
+    # absolute url for callback
+    # we will define it below
+    redirect_uri = request.url_for("auth")
+    return await oauth.github.authorize_redirect(request, redirect_uri)
+
+
+@app.get("/auth")
+async def auth(request: Request):
+    token = await oauth.github.authorize_access_token(request)
+    # <=0.15
+    # user = await oauth.github.parse_id_token(request, token)
+    emails = await oauth.github.get("user/emails", token=token)
+    print(emails)
+    return [email for email in emails.json() if email["primary"]]

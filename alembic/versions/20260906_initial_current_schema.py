@@ -1,7 +1,7 @@
 """Initial schema matching the current app before ingredient feature work.
 
 Revision ID: 20260906_initial_current_schema
-Revises: 
+Revises:
 Create Date: 2026-09-06 00:00:00.000000
 """
 
@@ -24,7 +24,9 @@ def upgrade() -> None:
         sa.Column("image_url", sa.String(), nullable=False, server_default=""),
         if_not_exists=True,
     )
-    op.create_index(op.f("ix_recipes_name"), "recipes", ["name"], unique=False, if_not_exists=True)
+    op.create_index(
+        op.f("ix_recipes_name"), "recipes", ["name"], unique=False, if_not_exists=True
+    )
 
     op.create_table(
         "restaurants",
@@ -33,7 +35,13 @@ def upgrade() -> None:
         sa.Column("image_url", sa.String(), nullable=False, server_default=""),
         if_not_exists=True,
     )
-    op.create_index(op.f("ix_restaurants_name"), "restaurants", ["name"], unique=False, if_not_exists=True)
+    op.create_index(
+        op.f("ix_restaurants_name"),
+        "restaurants",
+        ["name"],
+        unique=False,
+        if_not_exists=True,
+    )
 
     op.create_table(
         "menu_items",
@@ -43,10 +51,18 @@ def upgrade() -> None:
         sa.Column("description", sa.String(), nullable=False, server_default=""),
         sa.Column("price", sa.String(), nullable=False, server_default=""),
         sa.Column("image_url", sa.String(), nullable=False, server_default=""),
-        sa.ForeignKeyConstraint(["restaurant_id"], ["restaurants.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(
+            ["restaurant_id"], ["restaurants.id"], ondelete="CASCADE"
+        ),
         if_not_exists=True,
     )
-    op.create_index(op.f("ix_menu_items_name"), "menu_items", ["name"], unique=False, if_not_exists=True)
+    op.create_index(
+        op.f("ix_menu_items_name"),
+        "menu_items",
+        ["name"],
+        unique=False,
+        if_not_exists=True,
+    )
 
 
 def downgrade() -> None:

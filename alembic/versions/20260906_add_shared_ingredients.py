@@ -32,7 +32,9 @@ def upgrade() -> None:
         sa.Column("quantity", sa.String(), nullable=False, server_default=""),
         sa.Column("notes", sa.String(), nullable=False, server_default=""),
         sa.ForeignKeyConstraint(["recipe_id"], ["recipes.id"], ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(["ingredient_id"], ["ingredients.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(
+            ["ingredient_id"], ["ingredients.id"], ondelete="CASCADE"
+        ),
         sa.UniqueConstraint("recipe_id", "ingredient_id"),
     )
 

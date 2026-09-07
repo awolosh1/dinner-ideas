@@ -11,14 +11,19 @@ from dinner_picker.models import *
 
 config = context.config
 
-config.set_main_option("sqlalchemy.url", os.getenv("DATABASE_URL", "sqlite:///dinner_picker.db"))
+config.set_main_option(
+    "sqlalchemy.url", os.getenv("DATABASE_URL", "sqlite:///dinner_picker.db")
+)
 pyproject_path = Path(__file__).resolve().parents[1] / "pyproject.toml"
 with pyproject_path.open("rb") as fh:
     pyproject = tomllib.load(fh)
 
 alembic_cfg = pyproject.get("tool", {}).get("alembic", {})
 if "script_location" in alembic_cfg:
-    config.set_main_option("script_location", str(Path(__file__).resolve().parents[1] / alembic_cfg["script_location"]))
+    config.set_main_option(
+        "script_location",
+        str(Path(__file__).resolve().parents[1] / alembic_cfg["script_location"]),
+    )
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)

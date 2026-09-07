@@ -15,7 +15,10 @@ dependencies = [
   "python-multipart",
   "alembic>=1.19.2",
   "sqlmodel>=0.0.42",
-  "psycopg2-binary"
+  "psycopg2-binary",
+  "authlib>=1.8.0",
+  "httpx2>=2.12.0",
+  "itsdangerous>=2.2.0",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -27,3 +30,8 @@ entrypoint = "src.dinner_picker:app"
 [tool.alembic]
 script_location = "alembic"
 prepend_sys_path = ["src"]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.16.6",
+]

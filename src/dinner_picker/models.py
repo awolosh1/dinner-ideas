@@ -36,8 +36,12 @@ class RecipeIngredient(RecipeIngredientBase, table=True):
     __tablename__ = "recipe_ingredients"
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    recipe_id: Optional[int] = Field(default=None, foreign_key="recipes.id", ondelete="CASCADE")
-    ingredient_id: Optional[int] = Field(default=None, foreign_key="ingredients.id", ondelete="CASCADE")
+    recipe_id: Optional[int] = Field(
+        default=None, foreign_key="recipes.id", ondelete="CASCADE"
+    )
+    ingredient_id: Optional[int] = Field(
+        default=None, foreign_key="ingredients.id", ondelete="CASCADE"
+    )
     recipe: Optional[Recipe] = Relationship(back_populates="ingredients")
     ingredient: Optional[Ingredient] = Relationship(back_populates="recipe_links")
 
