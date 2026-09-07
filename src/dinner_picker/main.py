@@ -39,7 +39,6 @@ BASE_DIR = Path(__file__).resolve().parents[2]
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    init_db()
     yield
 
 
