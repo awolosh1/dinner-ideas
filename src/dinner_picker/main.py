@@ -57,7 +57,16 @@ templates.env.cache = None
 class RequireLoginMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
-        public_paths = {"/login", "/login/github", "/auth", "/logout", "/static"}
+        public_paths = {
+            "/login",
+            "/login/github",
+            "/login/google",
+            "/auth",
+            "/auth/github",
+            "/auth/google",
+            "/logout",
+            "/static",
+        }
         if path.startswith("/static"):
             return await call_next(request)
         if path in public_paths:
@@ -506,34 +515,96 @@ def delete_recipe_ingredient(ingredient_id: int, request: Request):
 async def login_page(request: Request):
     if request.session.get("user"):
         return RedirectResponse(url="/", status_code=302)
-    return templates.TemplateResponse(request=request, name="login.html")
+    err = request.query_params.get("error")
+    error_message = None
+    if err == "github_unverified_email":
+        error_message = "GitHub did not return a verified email. Please verify your email on GitHub or use a different sign-in method."
+    elif err == "google_unverified_email":
+        error_message = "Google did not return a verified email. Please verify your Google account email or use a different sign-in method."
+    elif err == "google_no_userinfo":
+        error_message = "Google did not return user info. Check your Google OAuth redirect URI and that the 'openid email profile' scope is enabled."
+    return templates.TemplateResponse(
+        request=request, name="login.html", context={"error_message": error_message}
+    )
 
 
 @app.get("/login/github")
 async def login_github(request: Request):
-    redirect_uri = request.url_for("auth_callback")
+    redirect_uri = request.url_for("auth_github")
     return await oauth.github.authorize_redirect(request, redirect_uri)
 
 
-@app.get("/auth", name="auth_callback")
-async def auth(request: Request):
+@app.get("/login/google")
+async def login_google(request: Request):
+    redirect_uri = request.url_for("auth_google")
+    return await oauth.google.authorize_redirect(request, redirect_uri)
+
+
+@app.get("/auth/github", name="auth_github")
+async def auth_github(request: Request):
     token = await oauth.github.authorize_access_token(request)
     user_response = await oauth.github.get("user", token=token)
     user_data = user_response.json()
 
     emails_response = await oauth.github.get("user/emails", token=token)
     email_data = emails_response.json() or []
-    primary_email = next(
-        (item.get("email") for item in email_data if item.get("primary")),
-        (email_data[0].get("email") if email_data else None),
+    # Prefer primary verified email, else any verified email
+    primary_verified = next(
+        (
+            item.get("email")
+            for item in email_data
+            if item.get("primary") and item.get("verified")
+        ),
+        None,
     )
+    any_verified = next(
+        (item.get("email") for item in email_data if item.get("verified")), None
+    )
+    primary_email = primary_verified or any_verified
+
+    if not primary_email:
+        return RedirectResponse(
+            url="/login?error=github_unverified_email", status_code=302
+        )
 
     request.session["user"] = {
-        "id": user_data.get("id"),
-        "login": user_data.get("login"),
-        "name": user_data.get("name") or user_data.get("login"),
-        "email": (primary_email or "").strip().lower(),
-        "avatar_url": user_data.get("avatar_url"),
+        "id": user_data.get("id") or f"github:{primary_email}",
+        "login": user_data.get("login") or (primary_email or "").split("@")[0],
+        "name": user_data.get("name")
+        or user_data.get("login")
+        or (primary_email or ""),
+        "email": "github:" + primary_email.strip().lower(),
+        "avatar_url": user_data.get("avatar_url") or None,
+    }
+    return RedirectResponse(url="/", status_code=302)
+
+
+@app.get("/auth/google", name="auth_google")
+async def auth_google(request: Request):
+    token = await oauth.google.authorize_access_token(request)
+    user_data = {}
+    # Try to parse id_token first (OpenID Connect)
+    user_data = token.get("userinfo")
+    # Require email to be verified by Google
+    if not user_data:
+        return RedirectResponse(url="/login?error=google_no_userinfo", status_code=302)
+    verified = user_data.get("email_verified")
+    if not verified:
+        return RedirectResponse(
+            url="/login?error=google_unverified_email", status_code=302
+        )
+
+    email = (user_data.get("email") or "").strip().lower()
+    if not email:
+        return RedirectResponse(
+            url="/login?error=google_unverified_email", status_code=302
+        )
+    request.session["user"] = {
+        "id": user_data.get("sub") or user_data.get("id") or f"google:{email}",
+        "login": (user_data.get("email") or "").split("@")[0],
+        "name": user_data.get("name") or email or "",
+        "email": "google:" + email,
+        "avatar_url": user_data.get("picture") or None,
     }
     return RedirectResponse(url="/", status_code=302)
 
@@ -613,12 +684,14 @@ def list_available_recipes(request: Request):
         for recipe, _ in available_recipes:
             if recipe.id not in seen_ids:
                 seen_ids.add(recipe.id)
-                result.append({
-                    "id": recipe.id,
-                    "name": recipe.name,
-                    "description": recipe.description,
-                    "image_url": recipe.image_url,
-                })
+                result.append(
+                    {
+                        "id": recipe.id,
+                        "name": recipe.name,
+                        "description": recipe.description,
+                        "image_url": recipe.image_url,
+                    }
+                )
         return result
 
 
@@ -663,15 +736,17 @@ def list_available_menu_items(request: Request):
         for menu_item, restaurant, _ in available_items:
             if menu_item.id not in seen_ids:
                 seen_ids.add(menu_item.id)
-                result.append({
-                    "id": menu_item.id,
-                    "restaurant_id": menu_item.restaurant_id,
-                    "name": menu_item.name,
-                    "description": menu_item.description,
-                    "price": menu_item.price,
-                    "image_url": menu_item.image_url,
-                    "restaurant_name": restaurant.name,
-                })
+                result.append(
+                    {
+                        "id": menu_item.id,
+                        "restaurant_id": menu_item.restaurant_id,
+                        "name": menu_item.name,
+                        "description": menu_item.description,
+                        "price": menu_item.price,
+                        "image_url": menu_item.image_url,
+                        "restaurant_name": restaurant.name,
+                    }
+                )
         return result
 
 
@@ -691,7 +766,9 @@ def add_shared_menu_item(item_id: int, request: Request):
             )
         ).first()
         if existing is not None:
-            raise HTTPException(status_code=400, detail="You already have this menu item")
+            raise HTTPException(
+                status_code=400, detail="You already have this menu item"
+            )
 
         _ensure_menu_item_user_link(session, item_id, user_email)
         session.commit()

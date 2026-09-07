@@ -85,7 +85,7 @@ function renderIdea() {
     : `<span class="tag takeout">Takeout · ${idea.restaurant_name}</span>`;
 
   const photoHtml = idea.image_url
-    ? `<img src="${idea.image_url}" alt="${idea.title}">`
+    ? `<img src="${idea.image_url}" alt="${idea.title}" loading="lazy" decoding="async">`
     : `<div class="no-photo">no picture added yet</div>`;
 
   const metaHtml = idea.type === "takeout" && idea.price
@@ -164,7 +164,7 @@ function renderDecided(idea) {
   app.innerHTML = `
     <div class="ticket">
       ${orderLine()}
-      <div class="photo-frame">${idea.image_url ? `<img src="${idea.image_url}" alt="${idea.title}">` : `<div class="no-photo">no picture added yet</div>`}</div>
+      <div class="photo-frame">${idea.image_url ? `<img src="${idea.image_url}" alt="${idea.title}" loading="lazy" decoding="async">` : `<div class="no-photo">no picture added yet</div>`}</div>
       <h1 class="dish-name">${idea.title}</h1>
       ${idea.subtitle ? `<p class="dish-sub">${idea.subtitle}</p>` : ""}
     </div>

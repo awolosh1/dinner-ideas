@@ -3,6 +3,7 @@ import os
 from authlib.integrations.starlette_client import OAuth
 
 CONF_URL = "https://github.com/login/oauth/.well-known/openid-configuration"
+GOOGLE_OIDC = "https://accounts.google.com/.well-known/openid-configuration"
 
 oauth = OAuth()
 oauth.register(
@@ -13,4 +14,13 @@ oauth.register(
     access_token_url="https://github.com/login/oauth/access_token",
     api_base_url="https://api.github.com/",
     client_kwargs={"scope": "user:email"},
+)
+
+# Google OpenID Connect registration (for profile + email)
+oauth.register(
+    name="google",
+    client_id=os.getenv("GOOGLE_CLIENT_ID"),
+    client_secret=os.getenv("GOOGLE_CLIENT_SECRET"),
+    server_metadata_url=GOOGLE_OIDC,
+    client_kwargs={"scope": "openid email profile"},
 )
