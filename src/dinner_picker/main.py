@@ -672,16 +672,21 @@ def list_available_recipes(request: Request):
     user_email = current_user_email(request)
     with Session(engine) as session:
         # Get all recipes that other users have added
+        my_recipe_links = (
+                select(RecipeUserLink.recipe_id)
+                .where(RecipeUserLink.user_email == user_email)
+            )
+            
+        # 2. Get recipes that are NOT in that subquery
         available_recipes = session.exec(
-            select(Recipe, RecipeUserLink)
-            .join(RecipeUserLink, Recipe.id == RecipeUserLink.recipe_id)
-            .where(RecipeUserLink.user_email != user_email)
+            select(Recipe)
+            .where(~(Recipe.id.in_(my_recipe_links)))
             .order_by(Recipe.name)
         ).all()
 
         result = []
         seen_ids = set()
-        for recipe, _ in available_recipes:
+        for recipe in available_recipes:
             if recipe.id not in seen_ids:
                 seen_ids.add(recipe.id)
                 result.append(
@@ -723,11 +728,15 @@ def list_available_menu_items(request: Request):
     user_email = current_user_email(request)
     with Session(engine) as session:
         # Get all menu items that other users have added
+        my_menu_links = (
+                select(MenuItemUserLink.menu_item_id)
+                .where(MenuItemUserLink.user_email == user_email)
+            )
+            
+        # 2. Get menu items that are NOT in that subquery
         available_items = session.exec(
-            select(MenuItem, Restaurant, MenuItemUserLink)
-            .join(Restaurant, MenuItem.restaurant_id == Restaurant.id)
-            .join(MenuItemUserLink, MenuItem.id == MenuItemUserLink.menu_item_id)
-            .where(MenuItemUserLink.user_email != user_email)
+            select(MenuItem)
+            .where(~(MenuItem.id.in_(my_menu_links)))
             .order_by(MenuItem.name)
         ).all()
 
