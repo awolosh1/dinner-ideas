@@ -5,9 +5,9 @@ Revises: 20260906_initial_current_schema
 Create Date: 2026-09-06 00:00:00.000000
 """
 
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
 
 revision = "20260906_add_shared_ingredients"
 down_revision = "20260906_initial_current_schema"

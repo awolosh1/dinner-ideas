@@ -16,9 +16,10 @@ import os
 from contextlib import contextmanager
 from pathlib import Path
 
-from alembic import command
 from alembic.config import Config
 from sqlmodel import create_engine
+
+from alembic import command
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///dinner.db")

@@ -1,17 +1,8 @@
-import json
 import os
-from fastapi import FastAPI
-from starlette.config import Config
-from starlette.requests import Request
-from starlette.responses import HTMLResponse, RedirectResponse
-from authlib.integrations.starlette_client import OAuth, OAuthError
 
+from authlib.integrations.starlette_client import OAuth
 
 CONF_URL = "https://github.com/login/oauth/.well-known/openid-configuration"
-from authlib.integrations.starlette_client import OAuth
-from starlette.config import Config, undefined
-from typing import Any, Callable, Mapping, TypeVar
-import logging
 
 oauth = OAuth()
 oauth.register(

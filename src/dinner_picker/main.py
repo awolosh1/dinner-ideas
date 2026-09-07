@@ -6,7 +6,7 @@ cook, or a menu item from a local restaurant you've added yourself. You get
 3 "no"s before the app makes you say yes to the next one.
 
 Run with:
-    uvicorn dinner_picker.main:app --reload
+    uv run --env-file .env.local uvicorn dinner_picker.main:app --reload
 Then open http://127.0.0.1:8000
 Admin page (add recipes/restaurants/menu items) at /admin
 """
@@ -31,9 +31,11 @@ from .models import (
     IngredientIn,
     MenuItem,
     MenuItemIn,
+    MenuItemUserLink,
     Recipe,
     RecipeIn,
     RecipeIngredient,
+    RecipeUserLink,
     Restaurant,
     RestaurantIn,
 )
@@ -62,13 +64,17 @@ class RequireLoginMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
         if not request.session.get("user"):
             if path.startswith("/api"):
-                return JSONResponse({"detail": "Authentication required"}, status_code=401)
+                return JSONResponse(
+                    {"detail": "Authentication required"}, status_code=401
+                )
             return RedirectResponse(url="/login", status_code=302)
         return await call_next(request)
 
 
 app.add_middleware(RequireLoginMiddleware)
-app.add_middleware(SessionMiddleware, secret_key=os.getenv("SESSION_SECRET", "dev-session-secret"))
+app.add_middleware(
+    SessionMiddleware, secret_key=os.getenv("SESSION_SECRET", "dev-session-secret")
+)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -78,17 +84,26 @@ async def home(request: Request):
 
 @app.get("/admin", response_class=HTMLResponse)
 async def admin(request: Request):
+    user_email = current_user_email(request)
     with Session(engine) as session:
         restaurants = session.exec(select(Restaurant).order_by(Restaurant.name)).all()
-        recipes = session.exec(select(Recipe).order_by(Recipe.id.desc())).all()
+        recipe_ids = _user_recipe_ids(session, user_email)
+        menu_item_ids = _user_menu_item_ids(session, user_email)
+
+        recipes = session.exec(
+            select(Recipe).where(Recipe.id.in_(recipe_ids)).order_by(Recipe.id.desc())
+        ).all()
         menu_items = session.exec(
             select(MenuItem, Restaurant)
             .join(Restaurant, MenuItem.restaurant_id == Restaurant.id)
+            .where(MenuItem.id.in_(menu_item_ids))
             .order_by(MenuItem.id.desc())
         ).all()
         ingredient_rows = session.exec(
             select(RecipeIngredient, Ingredient)
             .join(Ingredient, RecipeIngredient.ingredient_id == Ingredient.id)
+            .join(Recipe, RecipeIngredient.recipe_id == Recipe.id)
+            .where(Recipe.id.in_(recipe_ids))
             .order_by(RecipeIngredient.recipe_id, Ingredient.name)
         ).all()
 
@@ -123,6 +138,7 @@ async def admin(request: Request):
             "restaurants": [dict(r) for r in restaurants],
             "recipes": recipe_rows,
             "menu_items": menu_rows,
+            "current_user": request.session.get("user") or {},
         },
     )
 
@@ -153,13 +169,16 @@ def _idea_from_menu_item(row: tuple[MenuItem, Restaurant]) -> dict:
     }
 
 
-def _all_ideas() -> list[dict]:
+def _all_ideas(request: Request) -> list[dict]:
+    user_email = current_user_email(request)
     with Session(engine) as session:
-        recipes = session.exec(select(Recipe)).all()
+        recipe_ids = _user_recipe_ids(session, user_email)
+        menu_item_ids = _user_menu_item_ids(session, user_email)
+        recipes = session.exec(select(Recipe).where(Recipe.id.in_(recipe_ids))).all()
         menu_rows = session.exec(
-            select(MenuItem, Restaurant).join(
-                Restaurant, MenuItem.restaurant_id == Restaurant.id
-            )
+            select(MenuItem, Restaurant)
+            .join(Restaurant, MenuItem.restaurant_id == Restaurant.id)
+            .where(MenuItem.id.in_(menu_item_ids))
         ).all()
 
     ideas = [_idea_from_recipe(r) for r in recipes]
@@ -168,9 +187,9 @@ def _all_ideas() -> list[dict]:
 
 
 @app.get("/api/random")
-def random_idea(mood: str = "all", exclude: str = ""):
+def random_idea(request: Request, mood: str = "all", exclude: str = ""):
     excluded_ids = {i for i in exclude.split(",") if i}
-    all_ideas = _all_ideas()
+    all_ideas = _all_ideas(request)
     pool = [
         idea
         for idea in all_ideas
@@ -192,8 +211,8 @@ def random_idea(mood: str = "all", exclude: str = ""):
 
 
 @app.get("/api/ideas")
-def list_ideas(mood: str = "all"):
-    ideas = _all_ideas()
+def list_ideas(request: Request, mood: str = "all"):
+    ideas = _all_ideas(request)
     filtered = [
         idea for idea in ideas if mood in {"all", "any"} or idea["type"] == mood
     ]
@@ -202,35 +221,56 @@ def list_ideas(mood: str = "all"):
 
 
 @app.post("/api/recipes")
-def add_recipe(recipe: RecipeIn):
+def add_recipe(recipe: RecipeIn, request: Request):
+    user_email = current_user_email(request)
     with Session(engine) as session:
         row = Recipe.model_validate(recipe)
         session.add(row)
         session.commit()
         session.refresh(row)
+        _ensure_recipe_user_link(session, row.id, user_email)
+        session.commit()
         return {"id": row.id}
 
 
 @app.delete("/api/recipes/{recipe_id}")
-def delete_recipe(recipe_id: int):
+def delete_recipe(recipe_id: int, request: Request):
+    user_email = current_user_email(request)
     with Session(engine) as session:
         recipe = session.get(Recipe, recipe_id)
         if recipe is None:
             raise HTTPException(status_code=404, detail="Recipe not found")
-        session.delete(recipe)
+
+        link = session.exec(
+            select(RecipeUserLink).where(
+                RecipeUserLink.recipe_id == recipe_id,
+                RecipeUserLink.user_email == user_email,
+            )
+        ).first()
+        if link is None:
+            raise HTTPException(
+                status_code=403, detail="Recipe does not belong to this user"
+            )
+
+        session.delete(link)
+        remaining = session.exec(
+            select(RecipeUserLink).where(RecipeUserLink.recipe_id == recipe_id)
+        ).first()
+        if remaining is None:
+            session.delete(recipe)
         session.commit()
     return {"ok": True}
 
 
 @app.get("/api/restaurants")
-def list_restaurants():
+def list_restaurants(request: Request):
     with Session(engine) as session:
         rows = session.exec(select(Restaurant).order_by(Restaurant.name)).all()
         return [dict(r) for r in rows]
 
 
 @app.post("/api/restaurants")
-def add_restaurant(restaurant: RestaurantIn):
+def add_restaurant(restaurant: RestaurantIn, request: Request):
     with Session(engine) as session:
         row = Restaurant.model_validate(restaurant)
         session.add(row)
@@ -240,7 +280,7 @@ def add_restaurant(restaurant: RestaurantIn):
 
 
 @app.delete("/api/restaurants/{restaurant_id}")
-def delete_restaurant(restaurant_id: int):
+def delete_restaurant(restaurant_id: int, request: Request):
     with Session(engine) as session:
         row = session.get(Restaurant, restaurant_id)
         if row is None:
@@ -251,7 +291,8 @@ def delete_restaurant(restaurant_id: int):
 
 
 @app.post("/api/menu-items")
-def add_menu_item(item: MenuItemIn):
+def add_menu_item(item: MenuItemIn, request: Request):
+    user_email = current_user_email(request)
     with Session(engine) as session:
         restaurant = session.get(Restaurant, item.restaurant_id)
         if restaurant is None:
@@ -261,26 +302,59 @@ def add_menu_item(item: MenuItemIn):
         session.add(row)
         session.commit()
         session.refresh(row)
+        _ensure_menu_item_user_link(session, row.id, user_email)
+        session.commit()
         return {"id": row.id}
 
 
 @app.delete("/api/menu-items/{item_id}")
-def delete_menu_item(item_id: int):
+def delete_menu_item(item_id: int, request: Request):
+    user_email = current_user_email(request)
     with Session(engine) as session:
         row = session.get(MenuItem, item_id)
         if row is None:
             raise HTTPException(status_code=404, detail="Menu item not found")
-        session.delete(row)
+
+        link = session.exec(
+            select(MenuItemUserLink).where(
+                MenuItemUserLink.menu_item_id == item_id,
+                MenuItemUserLink.user_email == user_email,
+            )
+        ).first()
+        if link is None:
+            raise HTTPException(
+                status_code=403, detail="Menu item does not belong to this user"
+            )
+
+        session.delete(link)
+        remaining = session.exec(
+            select(MenuItemUserLink).where(MenuItemUserLink.menu_item_id == item_id)
+        ).first()
+        if remaining is None:
+            session.delete(row)
         session.commit()
     return {"ok": True}
 
 
 @app.put("/api/menu-items/{item_id}")
-def update_menu_item(item_id: int, item: MenuItemIn):
+def update_menu_item(item_id: int, item: MenuItemIn, request: Request):
+    user_email = current_user_email(request)
     with Session(engine) as session:
         row = session.get(MenuItem, item_id)
         if row is None:
             raise HTTPException(status_code=404, detail="Menu item not found")
+
+        link = session.exec(
+            select(MenuItemUserLink).where(
+                MenuItemUserLink.menu_item_id == item_id,
+                MenuItemUserLink.user_email == user_email,
+            )
+        ).first()
+        if link is None:
+            raise HTTPException(
+                status_code=403, detail="Menu item does not belong to this user"
+            )
+
         restaurant = session.get(Restaurant, item.restaurant_id)
         if restaurant is None:
             raise HTTPException(status_code=404, detail="Restaurant not found")
@@ -296,8 +370,22 @@ def update_menu_item(item_id: int, item: MenuItemIn):
 
 
 @app.get("/api/recipes/{recipe_id}/ingredients")
-def list_recipe_ingredients(recipe_id: int):
+def list_recipe_ingredients(recipe_id: int, request: Request):
+    user_email = current_user_email(request)
     with Session(engine) as session:
+        recipe = session.get(Recipe, recipe_id)
+        if recipe is None:
+            raise HTTPException(status_code=404, detail="Recipe not found")
+        link = session.exec(
+            select(RecipeUserLink).where(
+                RecipeUserLink.recipe_id == recipe_id,
+                RecipeUserLink.user_email == user_email,
+            )
+        ).first()
+        if link is None:
+            raise HTTPException(
+                status_code=403, detail="Recipe does not belong to this user"
+            )
         rows = session.exec(
             select(RecipeIngredient, Ingredient)
             .join(Ingredient, RecipeIngredient.ingredient_id == Ingredient.id)
@@ -318,11 +406,22 @@ def list_recipe_ingredients(recipe_id: int):
 
 
 @app.post("/api/recipes/{recipe_id}/ingredients")
-def add_recipe_ingredient(recipe_id: int, ingredient: IngredientIn):
+def add_recipe_ingredient(recipe_id: int, ingredient: IngredientIn, request: Request):
+    user_email = current_user_email(request)
     with Session(engine) as session:
         recipe = session.get(Recipe, recipe_id)
         if recipe is None:
             raise HTTPException(status_code=404, detail="Recipe not found")
+        link = session.exec(
+            select(RecipeUserLink).where(
+                RecipeUserLink.recipe_id == recipe_id,
+                RecipeUserLink.user_email == user_email,
+            )
+        ).first()
+        if link is None:
+            raise HTTPException(
+                status_code=403, detail="Recipe does not belong to this user"
+            )
 
         name = ingredient.name.strip()
         if not name:
@@ -368,11 +467,25 @@ def add_recipe_ingredient(recipe_id: int, ingredient: IngredientIn):
 
 
 @app.delete("/api/ingredients/{ingredient_id}")
-def delete_recipe_ingredient(ingredient_id: int):
+def delete_recipe_ingredient(ingredient_id: int, request: Request):
+    user_email = current_user_email(request)
     with Session(engine) as session:
         row = session.get(RecipeIngredient, ingredient_id)
         if row is None:
             raise HTTPException(status_code=404, detail="Ingredient not found")
+        recipe = session.get(Recipe, row.recipe_id)
+        if recipe is None:
+            raise HTTPException(status_code=404, detail="Recipe not found")
+        link = session.exec(
+            select(RecipeUserLink).where(
+                RecipeUserLink.recipe_id == row.recipe_id,
+                RecipeUserLink.user_email == user_email,
+            )
+        ).first()
+        if link is None:
+            raise HTTPException(
+                status_code=403, detail="Recipe does not belong to this user"
+            )
 
         ingredient_id_value = row.ingredient_id
         session.delete(row)
@@ -419,7 +532,7 @@ async def auth(request: Request):
         "id": user_data.get("id"),
         "login": user_data.get("login"),
         "name": user_data.get("name") or user_data.get("login"),
-        "email": primary_email,
+        "email": (primary_email or "").strip().lower(),
         "avatar_url": user_data.get("avatar_url"),
     }
     return RedirectResponse(url="/", status_code=302)
@@ -429,3 +542,55 @@ async def auth(request: Request):
 async def logout(request: Request):
     request.session.pop("user", None)
     return RedirectResponse(url="/login", status_code=302)
+
+
+def current_user_email(request: Request) -> str:
+    user = request.session.get("user") or {}
+    email = user.get("email") or ""
+    return email.strip().lower()
+
+
+def _user_recipe_ids(session: Session, user_email: str) -> list[int]:
+    if not user_email:
+        return []
+    return session.exec(
+        select(RecipeUserLink.recipe_id).where(RecipeUserLink.user_email == user_email)
+    ).all()
+
+
+def _user_menu_item_ids(session: Session, user_email: str) -> list[int]:
+    if not user_email:
+        return []
+    return session.exec(
+        select(MenuItemUserLink.menu_item_id).where(
+            MenuItemUserLink.user_email == user_email
+        )
+    ).all()
+
+
+def _ensure_recipe_user_link(session: Session, recipe_id: int, user_email: str) -> None:
+    if not user_email:
+        return
+    exists = session.exec(
+        select(RecipeUserLink).where(
+            RecipeUserLink.recipe_id == recipe_id,
+            RecipeUserLink.user_email == user_email,
+        )
+    ).first()
+    if exists is None:
+        session.add(RecipeUserLink(recipe_id=recipe_id, user_email=user_email))
+
+
+def _ensure_menu_item_user_link(
+    session: Session, menu_item_id: int, user_email: str
+) -> None:
+    if not user_email:
+        return
+    exists = session.exec(
+        select(MenuItemUserLink).where(
+            MenuItemUserLink.menu_item_id == menu_item_id,
+            MenuItemUserLink.user_email == user_email,
+        )
+    ).first()
+    if exists is None:
+        session.add(MenuItemUserLink(menu_item_id=menu_item_id, user_email=user_email))

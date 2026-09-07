@@ -1,12 +1,12 @@
-from logging.config import fileConfig
 import os
-from pathlib import Path
 import tomllib
+from logging.config import fileConfig
+from pathlib import Path
 
-from alembic import context
 from sqlalchemy import engine_from_config, pool
 from sqlmodel import SQLModel
 
+from alembic import context
 from dinner_picker.models import *
 
 config = context.config

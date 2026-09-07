@@ -1,5 +1,3 @@
-from typing import Optional
-
 from sqlmodel import Field, Relationship, SQLModel, UniqueConstraint
 
 
@@ -12,8 +10,20 @@ class RecipeBase(SQLModel):
 class Recipe(RecipeBase, table=True):
     __tablename__ = "recipes"
 
-    id: Optional[int] = Field(default=None, primary_key=True)
-    ingredients: list["RecipeIngredient"] = Relationship(back_populates="recipe")
+    id: int | None = Field(default=None, primary_key=True)
+    ingredients: list[RecipeIngredient] = Relationship(back_populates="recipe")
+    user_links: list[RecipeUserLink] = Relationship(back_populates="recipe")
+
+
+class RecipeUserLink(SQLModel, table=True):
+    __tablename__ = "recipe_user_links"
+
+    id: int | None = Field(default=None, primary_key=True)
+    user_email: str = Field(index=True)
+    recipe_id: int = Field(foreign_key="recipes.id", ondelete="CASCADE")
+    recipe: Recipe | None = Relationship(back_populates="user_links")
+
+    __table_args__ = (UniqueConstraint("user_email", "recipe_id"),)
 
 
 class IngredientBase(SQLModel):
@@ -23,8 +33,8 @@ class IngredientBase(SQLModel):
 class Ingredient(IngredientBase, table=True):
     __tablename__ = "ingredients"
 
-    id: Optional[int] = Field(default=None, primary_key=True)
-    recipe_links: list["RecipeIngredient"] = Relationship(back_populates="ingredient")
+    id: int | None = Field(default=None, primary_key=True)
+    recipe_links: list[RecipeIngredient] = Relationship(back_populates="ingredient")
 
 
 class RecipeIngredientBase(SQLModel):
@@ -35,15 +45,15 @@ class RecipeIngredientBase(SQLModel):
 class RecipeIngredient(RecipeIngredientBase, table=True):
     __tablename__ = "recipe_ingredients"
 
-    id: Optional[int] = Field(default=None, primary_key=True)
-    recipe_id: Optional[int] = Field(
+    id: int | None = Field(default=None, primary_key=True)
+    recipe_id: int | None = Field(
         default=None, foreign_key="recipes.id", ondelete="CASCADE"
     )
-    ingredient_id: Optional[int] = Field(
+    ingredient_id: int | None = Field(
         default=None, foreign_key="ingredients.id", ondelete="CASCADE"
     )
-    recipe: Optional[Recipe] = Relationship(back_populates="ingredients")
-    ingredient: Optional[Ingredient] = Relationship(back_populates="recipe_links")
+    recipe: Recipe | None = Relationship(back_populates="ingredients")
+    ingredient: Ingredient | None = Relationship(back_populates="recipe_links")
 
     __table_args__ = (UniqueConstraint("recipe_id", "ingredient_id"),)
 
@@ -56,8 +66,8 @@ class RestaurantBase(SQLModel):
 class Restaurant(RestaurantBase, table=True):
     __tablename__ = "restaurants"
 
-    id: Optional[int] = Field(default=None, primary_key=True)
-    menu_items: list["MenuItem"] = Relationship(back_populates="restaurant")
+    id: int | None = Field(default=None, primary_key=True)
+    menu_items: list[MenuItem] = Relationship(back_populates="restaurant")
 
 
 class MenuItemBase(SQLModel):
@@ -71,8 +81,20 @@ class MenuItemBase(SQLModel):
 class MenuItem(MenuItemBase, table=True):
     __tablename__ = "menu_items"
 
-    id: Optional[int] = Field(default=None, primary_key=True)
-    restaurant: Optional[Restaurant] = Relationship(back_populates="menu_items")
+    id: int | None = Field(default=None, primary_key=True)
+    restaurant: Restaurant | None = Relationship(back_populates="menu_items")
+    user_links: list[MenuItemUserLink] = Relationship(back_populates="menu_item")
+
+
+class MenuItemUserLink(SQLModel, table=True):
+    __tablename__ = "menu_item_user_links"
+
+    id: int | None = Field(default=None, primary_key=True)
+    user_email: str = Field(index=True)
+    menu_item_id: int = Field(foreign_key="menu_items.id", ondelete="CASCADE")
+    menu_item: MenuItem | None = Relationship(back_populates="user_links")
+
+    __table_args__ = (UniqueConstraint("user_email", "menu_item_id"),)
 
 
 class RecipeCreate(RecipeBase):

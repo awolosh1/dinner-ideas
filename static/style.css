@@ -62,6 +62,27 @@ a { color: inherit; }
 
 .topbar a.admin-link:hover { color: var(--mustard); border-color: var(--mustard); }
 
+.topbar .user-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid rgba(242, 234, 210, 0.45);
+  border-radius: 999px;
+  background: rgba(242, 234, 210, 0.08);
+  color: #f2ead2;
+  font-size: 11px;
+  line-height: 1.4;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topbar .user-pill-separator {
+  opacity: 0.7;
+}
+
 /* ---------- ticket card ---------- */
 
 .ticket-wrap {

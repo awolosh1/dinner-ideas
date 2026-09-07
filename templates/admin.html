@@ -10,7 +10,16 @@
 
   <div class="topbar" style="max-width:640px;">
     <span class="brand">Dinner Picker</span>
-    <div>
+    <div style="display:flex; align-items:center; gap:12px;">
+      {% if current_user %}
+      <span class="user-pill" title="{{ current_user.email or '' }}">
+        {% if current_user.login %}@{{ current_user.login }}{% endif %}
+        {% if current_user.email %}
+        <span class="user-pill-separator">·</span>
+        <span>{{ current_user.email }}</span>
+        {% endif %}
+      </span>
+      {% endif %}
       <a class="admin-link" href="/">back to picker</a>
       <span> · </span>
       <a class="admin-link" href="/logout">logout</a>
