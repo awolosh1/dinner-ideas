@@ -11,17 +11,21 @@ Then open http://127.0.0.1:8000
 Admin page (add recipes/restaurants/menu items) at /admin
 """
 
+import os
 import random
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, select
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.sessions import SessionMiddleware
+
+from .database import engine
 from .github import oauth
-from .database import engine, init_db
 from .models import (
     Ingredient,
     IngredientIn,
@@ -33,7 +37,6 @@ from .models import (
     Restaurant,
     RestaurantIn,
 )
-from starlette.middleware.sessions import SessionMiddleware
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 
@@ -47,7 +50,25 @@ app = FastAPI(title="Dinner Picker", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.cache = None
-app.add_middleware(SessionMiddleware, secret_key="!secret")
+
+
+class RequireLoginMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+        public_paths = {"/login", "/login/github", "/auth", "/logout", "/static"}
+        if path.startswith("/static"):
+            return await call_next(request)
+        if path in public_paths:
+            return await call_next(request)
+        if not request.session.get("user"):
+            if path.startswith("/api"):
+                return JSONResponse({"detail": "Authentication required"}, status_code=401)
+            return RedirectResponse(url="/login", status_code=302)
+        return await call_next(request)
+
+
+app.add_middleware(RequireLoginMiddleware)
+app.add_middleware(SessionMiddleware, secret_key=os.getenv("SESSION_SECRET", "dev-session-secret"))
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -368,19 +389,43 @@ def delete_recipe_ingredient(ingredient_id: int):
     return {"ok": True}
 
 
-@app.get("/login")
-async def login(request: Request):
-    # absolute url for callback
-    # we will define it below
-    redirect_uri = request.url_for("auth")
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request):
+    if request.session.get("user"):
+        return RedirectResponse(url="/", status_code=302)
+    return templates.TemplateResponse(request=request, name="login.html")
+
+
+@app.get("/login/github")
+async def login_github(request: Request):
+    redirect_uri = request.url_for("auth_callback")
     return await oauth.github.authorize_redirect(request, redirect_uri)
 
 
-@app.get("/auth")
+@app.get("/auth", name="auth_callback")
 async def auth(request: Request):
     token = await oauth.github.authorize_access_token(request)
-    # <=0.15
-    # user = await oauth.github.parse_id_token(request, token)
-    emails = await oauth.github.get("user/emails", token=token)
-    print(emails)
-    return [email for email in emails.json() if email["primary"]]
+    user_response = await oauth.github.get("user", token=token)
+    user_data = user_response.json()
+
+    emails_response = await oauth.github.get("user/emails", token=token)
+    email_data = emails_response.json() or []
+    primary_email = next(
+        (item.get("email") for item in email_data if item.get("primary")),
+        (email_data[0].get("email") if email_data else None),
+    )
+
+    request.session["user"] = {
+        "id": user_data.get("id"),
+        "login": user_data.get("login"),
+        "name": user_data.get("name") or user_data.get("login"),
+        "email": primary_email,
+        "avatar_url": user_data.get("avatar_url"),
+    }
+    return RedirectResponse(url="/", status_code=302)
+
+
+@app.get("/logout")
+async def logout(request: Request):
+    request.session.pop("user", None)
+    return RedirectResponse(url="/login", status_code=302)
