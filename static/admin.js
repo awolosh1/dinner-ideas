@@ -155,3 +155,89 @@ document.querySelectorAll("button.del").forEach((btn) => {
     }
   });
 });
+
+async function loadSharedMenuItems() {
+  console.log("loadSharedMenuItems called");
+  const container = document.getElementById("sharedMenuItemList");
+  if (!container) return;
+  
+  try {
+    const items = await requestJson("/api/menu-items/shared/available");
+    console.log("Shared menu items:", items);
+    
+    if (items.length === 0) {
+      container.innerHTML = '<span class="empty-msg">No menu items from other users available.</span>';
+      return;
+    }
+    
+    container.innerHTML = items.map(item => `
+      <div class="existing-item">
+        <span>${item.name} <span class="meta">— ${item.restaurant_name}</span></span>
+        ${item.description ? `<div class="meta">${item.description}</div>` : ""}
+        <div class="existing-actions">
+          <button class="add-shared" data-kind="menu-items" data-id="${item.id}">add to mine</button>
+        </div>
+      </div>
+    `).join("");
+    
+    document.querySelectorAll("button.add-shared[data-kind='menu-items']").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        if (!confirm("Add this menu item to your collection?")) return;
+        try {
+          await postJson(`/api/menu-items/shared/${btn.dataset.id}/add`, {});
+          location.reload();
+        } catch (err) {
+          alert(err.message);
+        }
+      });
+    });
+  } catch (err) {
+    container.innerHTML = `<span class="empty-msg">Error loading menu items: ${err.message}</span>`;
+  }
+}
+
+async function loadSharedRecipes() {
+  const container = document.getElementById("sharedRecipeList");
+  if (!container) return;
+  
+  try {
+    const recipes = await requestJson("/api/recipes/shared/available");
+    console.log("Shared recipes:", recipes);
+    
+    if (recipes.length === 0) {
+      container.innerHTML = '<span class="empty-msg">No recipes from other users available.</span>';
+      return;
+    }
+    
+    container.innerHTML = recipes.map(recipe => `
+      <div class="existing-item">
+        <span>${recipe.name}</span>
+        ${recipe.description ? `<div class="meta">${recipe.description}</div>` : ""}
+        <div class="existing-actions">
+          <button class="add-shared" data-kind="recipes" data-id="${recipe.id}">add to mine</button>
+        </div>
+      </div>
+    `).join("");
+    
+    document.querySelectorAll("button.add-shared[data-kind='recipes']").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        if (!confirm("Add this recipe to your collection?")) return;
+        try {
+          await postJson(`/api/recipes/shared/${btn.dataset.id}/add`, {});
+          location.reload();
+        } catch (err) {
+          alert(err.message);
+        }
+      });
+    });
+  } catch (err) {
+    console.error("Error loading recipes:", err);
+    container.innerHTML = `<span class="empty-msg">Error loading recipes: ${err.message}</span>`;
+  }
+}
+
+loadSharedMenuItems();
+loadSharedRecipes();
+
+console.log("Admin page loaded - functions called");
+

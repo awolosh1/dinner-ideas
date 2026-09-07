@@ -594,3 +594,105 @@ def _ensure_menu_item_user_link(
     ).first()
     if exists is None:
         session.add(MenuItemUserLink(menu_item_id=menu_item_id, user_email=user_email))
+
+
+@app.get("/api/recipes/shared/available")
+def list_available_recipes(request: Request):
+    user_email = current_user_email(request)
+    with Session(engine) as session:
+        # Get all recipes that other users have added
+        available_recipes = session.exec(
+            select(Recipe, RecipeUserLink)
+            .join(RecipeUserLink, Recipe.id == RecipeUserLink.recipe_id)
+            .where(RecipeUserLink.user_email != user_email)
+            .order_by(Recipe.name)
+        ).all()
+
+        result = []
+        seen_ids = set()
+        for recipe, _ in available_recipes:
+            if recipe.id not in seen_ids:
+                seen_ids.add(recipe.id)
+                result.append({
+                    "id": recipe.id,
+                    "name": recipe.name,
+                    "description": recipe.description,
+                    "image_url": recipe.image_url,
+                })
+        return result
+
+
+@app.post("/api/recipes/shared/{recipe_id}/add")
+def add_shared_recipe(recipe_id: int, request: Request):
+    user_email = current_user_email(request)
+    with Session(engine) as session:
+        recipe = session.get(Recipe, recipe_id)
+        if recipe is None:
+            raise HTTPException(status_code=404, detail="Recipe not found")
+
+        # Check if user already has this recipe
+        existing = session.exec(
+            select(RecipeUserLink).where(
+                RecipeUserLink.recipe_id == recipe_id,
+                RecipeUserLink.user_email == user_email,
+            )
+        ).first()
+        if existing is not None:
+            raise HTTPException(status_code=400, detail="You already have this recipe")
+
+        _ensure_recipe_user_link(session, recipe_id, user_email)
+        session.commit()
+        return {"ok": True}
+
+
+@app.get("/api/menu-items/shared/available")
+def list_available_menu_items(request: Request):
+    user_email = current_user_email(request)
+    with Session(engine) as session:
+        # Get all menu items that other users have added
+        available_items = session.exec(
+            select(MenuItem, Restaurant, MenuItemUserLink)
+            .join(Restaurant, MenuItem.restaurant_id == Restaurant.id)
+            .join(MenuItemUserLink, MenuItem.id == MenuItemUserLink.menu_item_id)
+            .where(MenuItemUserLink.user_email != user_email)
+            .order_by(MenuItem.name)
+        ).all()
+
+        result = []
+        seen_ids = set()
+        for menu_item, restaurant, _ in available_items:
+            if menu_item.id not in seen_ids:
+                seen_ids.add(menu_item.id)
+                result.append({
+                    "id": menu_item.id,
+                    "restaurant_id": menu_item.restaurant_id,
+                    "name": menu_item.name,
+                    "description": menu_item.description,
+                    "price": menu_item.price,
+                    "image_url": menu_item.image_url,
+                    "restaurant_name": restaurant.name,
+                })
+        return result
+
+
+@app.post("/api/menu-items/shared/{item_id}/add")
+def add_shared_menu_item(item_id: int, request: Request):
+    user_email = current_user_email(request)
+    with Session(engine) as session:
+        menu_item = session.get(MenuItem, item_id)
+        if menu_item is None:
+            raise HTTPException(status_code=404, detail="Menu item not found")
+
+        # Check if user already has this menu item
+        existing = session.exec(
+            select(MenuItemUserLink).where(
+                MenuItemUserLink.menu_item_id == item_id,
+                MenuItemUserLink.user_email == user_email,
+            )
+        ).first()
+        if existing is not None:
+            raise HTTPException(status_code=400, detail="You already have this menu item")
+
+        _ensure_menu_item_user_link(session, item_id, user_email)
+        session.commit()
+        return {"ok": True}
