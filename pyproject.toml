@@ -26,5 +26,4 @@ entrypoint = "src.dinner_picker:app"
 
 [tool.alembic]
 script_location = "alembic"
-sqlalchemy.url = "sqlite:///dinner.db"
 prepend_sys_path = ["src"]

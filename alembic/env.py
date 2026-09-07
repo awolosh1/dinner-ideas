@@ -1,4 +1,5 @@
 from logging.config import fileConfig
+import os
 from pathlib import Path
 import tomllib
 
@@ -10,13 +11,12 @@ from dinner_picker.models import *
 
 config = context.config
 
+config.set_main_option("sqlalchemy.url", os.getenv("DATABASE_URL", "sqlite:///dinner_picker.db"))
 pyproject_path = Path(__file__).resolve().parents[1] / "pyproject.toml"
 with pyproject_path.open("rb") as fh:
     pyproject = tomllib.load(fh)
 
 alembic_cfg = pyproject.get("tool", {}).get("alembic", {})
-if "sqlalchemy.url" in alembic_cfg:
-    config.set_main_option("sqlalchemy.url", alembic_cfg["sqlalchemy.url"])
 if "script_location" in alembic_cfg:
     config.set_main_option("script_location", str(Path(__file__).resolve().parents[1] / alembic_cfg["script_location"]))
 
